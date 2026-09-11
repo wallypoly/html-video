@@ -41,10 +41,31 @@ HTML/CSS (lower is better). Banned by the design skill:
 | vfx-text-cursor | 0 | 2 | 0 | 1 | 1 | ⚠️ |
 | frame-light-leak-cinema | 2 | 0 | 0 | 0 | 0 | ⚠️ |
 | frame-pentagram-stat | 3 | 0 | 0 | 0 | 2 | ⚠️ |
-| frame-liquid-bg-hero | 0 | 3 | 2 | 0 | 1 | ❌ |
-| frame-logo-outro | 0 | 3 | 5 | 2 | 0 | ❌ |
+| frame-liquid-bg-hero | 0 | 3 | 2 | 0 | 1 | ⚠️ |
+| frame-logo-outro | 0 | 3 | 5 | 2 | 0 | ⚠️ |
 
-Counts: **11 ✅ / 9 ⚠️ / 2 ❌**.
+Counts (v3.0.0 rules): **11 ✅ / 9 ⚠️ / 2 ❌**.
+
+> ### ⚠️ v3.1.0 修正 (2026-09-12, Wallance-directed)
+>
+> UNIQorn Design Guide 已从 v3.0.0 升到 **v3.1.0**。关键变化：**灵性符号
+> (水晶 / 月亮 / 塔罗 / 独角兽) 不再是品牌违禁品**，它们是 UNIQorn 的品牌
+> 词汇。被禁的只剩"视觉俗气执行"：紫银河**背景**、整图金粉、恐怖、宗教、
+> 儿童卡通、通用 wellness stock 素材、拥挤。
+>
+> 直接影响本表的两个 ❌ 判定：
+>
+> | Template | v3.0.0 | v3.1.0 | 原因 |
+> |---|:---:|:---:|---|
+> | `frame-liquid-bg-hero` | ❌ | **⚠️** | `#7c5cff` / `#a78bfa` 是**强调色**，不是紫银河背景 → 不再是品牌违规；剩 Inter + 128px 大标题两个通用质量问题 |
+> | `frame-logo-outro` | ❌ | **⚠️** | 同上；紫 logo 是品牌色，不再违规；剩 Inter + text-shadow glow 两个通用质量问题 |
+>
+> 所以 v3.1.0 口径下应为 **11 ✅ / 11 ⚠️ / 0 ❌**。
+>
+> **注意**：上表的 ⚠️ 是**通用设计质量**信号 (来自 `frontend-dev` skill：
+> 纯黑 / Inter / 高饱和 / glow / 超大标题)，不是品牌违规。品牌违规只有
+> 一份清单，在 `uniqorn-design-guide/references/05-negative-prompts.md`。
+> 别把两者混为一谈——这正是我 v3.0.0 时犯的错。
 
 ## Aspect coverage
 
