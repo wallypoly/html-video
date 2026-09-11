@@ -107,6 +107,18 @@ export async function render(input: RenderInput, ctx: RenderContext): Promise<Re
       };
     });
 
+    // Seed the variables the template can read, and let `data-hv` elements
+    // swap their authored copy for the project's values. Registered before the
+    // template's own scripts so the swap happens on the first DOMContentLoaded
+    // tick — i.e. before any animation reads layout or fonts settle.
+    await page.addInitScript(
+      ({ vars }) => {
+        (window as unknown as { __HV_VARS__?: Record<string, unknown> }).__HV_VARS__ = vars;
+      },
+      { vars: (input.variables ?? {}) as Record<string, unknown> },
+    );
+    await page.addInitScript(VARIABLE_SCRIPT);
+
     ctx.onProgress?.(30, 'loading frame');
     // Multi-composition templates ship an entry index.html that only stitches
     // sub-scenes via `data-composition-src="compositions/x.html"`; loaded raw
@@ -114,7 +126,7 @@ export async function render(input: RenderInput, ctx: RenderContext): Promise<Re
     // the studio's client-side fetch player can't run here). Inline the
     // composition files into the HTML up front so chromium records real motion
     // instead of an empty shell. Single-file templates pass through untouched.
-    const prepared = await prepareSourceHtml(input.template.sourcePath);
+    const prepared = await prepareSourceHtml(input.template.sourcePath, input.variables);
     cleanupSrc = prepared.cleanup;
     const fileUrl = pathToFileURL(prepared.loadPath).href;
     // Wait only for the DOM + same-document scripts (GSAP, the inline player),
@@ -411,6 +423,67 @@ function runFfmpeg(args: string[]): Promise<void> {
 }
 
 /**
+ * Substitute project variables into template markup.
+ *
+ * Inline `{{key}}` / `{{ key }}` tokens are replaced anywhere they appear —
+ * attribute values included, so a template can drive an image src or a CSS
+ * custom property from a variable. Unknown or empty keys are left alone so a
+ * template always keeps a readable fallback when the caller omits a variable.
+ *
+ * Element-level substitution (`data-hv="key"`) is handled in the page instead
+ * — see {@link VARIABLE_SCRIPT} — because replacing a node's children in the
+ * raw HTML would need a real parser to stay correct.
+ */
+function applyVariables(html: string, variables: Record<string, unknown>): string {
+  const entries = Object.entries(variables).filter(
+    ([, v]) => v !== undefined && v !== null && String(v) !== '',
+  );
+  if (entries.length === 0) return html;
+
+  let out = html;
+  for (const [key, value] of entries) {
+    // Escape `$` in the replacement so `$&` / `$1` in user copy can't be
+    // interpreted as a regex substitution pattern.
+    const safe = String(value).replace(/\$/g, '$$$$');
+    out = out.replace(new RegExp(`\\{\\{\\s*${escapeRegExp(key)}\\s*\\}\\}`, 'g'), safe);
+  }
+  return out;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * In-page variable substitution for `data-hv="<key>"` elements.
+ *
+ * Runs as an init script, i.e. before any template script, so its
+ * DOMContentLoaded listener is registered first and the swap lands before the
+ * template's own animation timeline starts reading layout. A missing or empty
+ * variable leaves the element's authored content in place.
+ */
+const VARIABLE_SCRIPT = `(function () {
+  var vars = window.__HV_VARS__ || {};
+  function apply() {
+    var nodes = document.querySelectorAll('[data-hv]');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var key = el.getAttribute('data-hv');
+      if (!key) continue;
+      var v = vars[key];
+      if (v === undefined || v === null || String(v) === '') continue;
+      el.textContent = String(v);
+      el.setAttribute('data-hv-applied', key);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', apply, { once: true });
+  } else {
+    apply();
+  }
+})();`;
+
+/**
  * Resolve the HTML to actually load into chromium.
  *
  * Single-file templates load as-is. Multi-composition templates declare their
@@ -429,8 +502,9 @@ function runFfmpeg(args: string[]): Promise<void> {
  */
 async function prepareSourceHtml(
   sourcePath: string,
+  variables: Record<string, unknown> = {},
 ): Promise<{ loadPath: string; cleanup?: () => Promise<void> }> {
-  const raw = await readFile(sourcePath, 'utf8');
+  const raw = applyVariables(await readFile(sourcePath, 'utf8'), variables);
   const srcMatches = Array.from(raw.matchAll(/data-composition-src=["']([^"']+)["']/g));
   if (srcMatches.length === 0) return { loadPath: sourcePath };
 

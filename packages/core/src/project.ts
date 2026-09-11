@@ -28,6 +28,32 @@ import { HtmlVideoError } from './errors.js';
 import type { AssetStore } from './asset-store.js';
 import type { EngineRegistry, ProjectStore, TemplateRegistry } from './registry.js';
 
+/** Fallback render size when neither an explicit resolution nor an aspect is set. */
+const DEFAULT_RESOLUTION = { width: 1920, height: 1080 } as const;
+
+/** Long-edge size used when expanding an aspect ratio into pixel dimensions. */
+const RESOLUTION_LONG_EDGE = 1080;
+
+/**
+ * Expand an aspect string into pixel dimensions.
+ *
+ * The CLI accepts `--aspect 16:9 | 9:16 | 1:1` and stores it verbatim on
+ * `preferences.aspect`; adapters only ever see `resolution`. Without this
+ * mapping a vertical project silently renders as 1920x1080.
+ */
+function aspectToResolution(aspect?: string): { width: number; height: number } | undefined {
+  switch (aspect) {
+    case '16:9':
+      return { width: 1920, height: 1080 };
+    case '9:16':
+      return { width: RESOLUTION_LONG_EDGE, height: 1920 };
+    case '1:1':
+      return { width: RESOLUTION_LONG_EDGE, height: RESOLUTION_LONG_EDGE };
+    default:
+      return undefined;
+  }
+}
+
 export interface CreateProjectInput {
   name: string;
   intent?: string;
@@ -346,7 +372,7 @@ export class ProjectOrchestrator {
         variables: project.variables,
         config: {
           format: 'mp4',
-          resolution: project.preferences.resolution ?? { width: 1920, height: 1080 },
+          resolution: this.resolveResolution(project),
           fps: project.preferences.fps ?? 60,
           duration: 'auto',
           outputPath: join(projectDir, 'output.mp4'),
@@ -370,6 +396,9 @@ export class ProjectOrchestrator {
   }): Promise<{ project: Project; outputPath: string }> {
     const project = await this.deps.projects.load(args.projectId);
     const projectDir = await this.deps.projects.ensureDir(project.id);
+    // `--aspect` is stored as a string on preferences, but adapters need real
+    // pixel dimensions. An explicit `resolution` always wins.
+    const resolution = this.resolveResolution(project);
     // Unique per-export filename so repeated exports of the SAME project don't
     // overwrite each other (different projects already have separate dirs).
     // output.mp4 stays as a stable "latest" alias updated after each export.
@@ -402,7 +431,7 @@ export class ProjectOrchestrator {
             variables: f.data !== undefined ? { ...project.variables, data: f.data } : project.variables,
             config: {
               format: 'mp4',
-              resolution: project.preferences.resolution ?? { width: 1920, height: 1080 },
+              resolution,
               fps: project.preferences.fps ?? 60,
               duration: f.durationSec,
               // The user set per-frame length on the format card — honor it as a
@@ -442,6 +471,14 @@ export class ProjectOrchestrator {
     }
     const tmpl = this.deps.templates.get(project.templateId);
     const adapter = this.deps.engines.get(tmpl.engine);
+    // Honour an explicit length when the caller supplied one. Previously this
+    // path hard-coded 'auto', so `duration_sec` (documented on every template
+    // manifest) silently did nothing for single-frame projects.
+    const requestedDuration = project.variables.duration_sec;
+    const explicitDuration =
+      typeof requestedDuration === 'number' && Number.isFinite(requestedDuration)
+        ? Math.max(0.5, requestedDuration)
+        : undefined;
 
     await adapter.render(
       {
@@ -449,9 +486,11 @@ export class ProjectOrchestrator {
         variables: project.variables,
         config: {
           format: 'mp4',
-          resolution: project.preferences.resolution ?? { width: 1920, height: 1080 },
+          resolution,
           fps: project.preferences.fps ?? 60,
-          duration: 'auto',
+          ...(explicitDuration !== undefined
+            ? { duration: explicitDuration, durationMode: 'explicit' as const }
+            : { duration: 'auto' as const }),
           outputPath,
         },
       },
@@ -467,6 +506,20 @@ export class ProjectOrchestrator {
     project.status = 'rendered';
     await this.deps.projects.save(project);
     return { project, outputPath };
+  }
+
+  /**
+   * Resolve the render resolution for a project.
+   *
+   * The CLI stores `--aspect` as a string (`"9:16"`), but adapters need pixel
+   * dimensions, so the two preferences are reconciled here. An explicit
+   * `resolution` on the project always wins; otherwise the aspect ratio is
+   * expanded with a 1080 long edge; otherwise we fall back to 1080p.
+   */
+  private resolveResolution(project: Project): { width: number; height: number } {
+    return (
+      project.preferences.resolution ?? aspectToResolution(project.preferences.aspect) ?? DEFAULT_RESOLUTION
+    );
   }
 
   /**
@@ -620,7 +673,7 @@ export class ProjectOrchestrator {
         variables: frame.data !== undefined ? { ...project.variables, data: frame.data } : project.variables,
         config: {
           format: 'mp4',
-          resolution: project.preferences.resolution ?? { width: 1920, height: 1080 },
+          resolution: this.resolveResolution(project),
           fps: project.preferences.fps ?? 60,
           duration: frame.durationSec,
           durationMode: 'explicit',
