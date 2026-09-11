@@ -425,14 +425,25 @@ function runFfmpeg(args: string[]): Promise<void> {
 /**
  * Substitute project variables into template markup.
  *
- * Inline `{{key}}` / `{{ key }}` tokens are replaced anywhere they appear —
- * attribute values included, so a template can drive an image src or a CSS
- * custom property from a variable. Unknown or empty keys are left alone so a
- * template always keeps a readable fallback when the caller omits a variable.
+ * Three mechanisms, run in this order:
  *
- * Element-level substitution (`data-hv="key"`) is handled in the page instead
- * — see {@link VARIABLE_SCRIPT} — because replacing a node's children in the
- * raw HTML would need a real parser to stay correct.
+ *   1. Inline `{{key}}` / `{{ key }}` tokens anywhere they appear — including
+ *      attribute values, so a template can drive an image src or a CSS custom
+ *      property from a variable.
+ *
+ *   2. `data-hv="key"` server-side: any element carrying the attribute has its
+ *      text content (between the matched open/close tag pair) replaced. Runs
+ *      here so it lands inside composition <template> bodies that the player
+ *      mounts on a later DOMContentLoaded tick — long after the in-page
+ *      VARIABLE_SCRIPT registered, which would otherwise miss them.
+ *
+ *   3. `data-hv="key"` client-side: VARIABLE_SCRIPT (registered as a page
+ *      init script) catches any remaining attribute-driven swaps that the
+ *      server pass couldn't match — e.g. elements that get re-mounted by
+ *      template scripts after first paint.
+ *
+ * Unknown or empty keys are left alone so a template keeps a readable fallback
+ * when the caller omits a variable.
  */
 function applyVariables(html: string, variables: Record<string, unknown>): string {
   const entries = Object.entries(variables).filter(
@@ -445,7 +456,22 @@ function applyVariables(html: string, variables: Record<string, unknown>): strin
     // Escape `$` in the replacement so `$&` / `$1` in user copy can't be
     // interpreted as a regex substitution pattern.
     const safe = String(value).replace(/\$/g, '$$$$');
+
+    // 1. inline token
     out = out.replace(new RegExp(`\\{\\{\\s*${escapeRegExp(key)}\\s*\\}\\}`, 'g'), safe);
+
+    // 2. data-hv attribute — match the open tag (any attrs, our `data-hv` is
+    // anywhere among them) through to the matching close tag, replace the
+    // contents. Limited to one level: a nested same-tag element (e.g. an h1
+    // inside another h1) is invalid HTML and would have terminated the
+    // template, so the non-greedy match against `</tag>` is safe in practice.
+    out = out.replace(
+      new RegExp(
+        `(<([a-zA-Z][a-zA-Z0-9-]*)\\b[^>]*\\bdata-hv=["']${escapeRegExp(key)}["'][^>]*>)([\\s\\S]*?)(</\\2>)`,
+        'g',
+      ),
+      (_match, open: string, _tag: string, _content: string, close: string) => `${open}${safe}${close}`,
+    );
   }
   return out;
 }
@@ -515,7 +541,12 @@ async function prepareSourceHtml(
     if (compMap[rel] !== undefined) continue;
     const compPath = join(srcDir, rel);
     if (!existsSync(compPath)) continue;
-    compMap[rel] = await readFile(compPath, 'utf8');
+    // Composition files become <template> content that the player grafts
+    // into the page on DOMContentLoaded. The client's VARIABLE_SCRIPT runs on
+    // the same tick, so anything mounted after that tick would race the swap;
+    // substitute vars server-side here so the mounted nodes already carry the
+    // right textContent regardless of who wins the race.
+    compMap[rel] = applyVariables(await readFile(compPath, 'utf8'), variables);
   }
   if (Object.keys(compMap).length === 0) return { loadPath: sourcePath };
 

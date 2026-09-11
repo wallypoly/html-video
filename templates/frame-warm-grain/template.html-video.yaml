@@ -37,8 +37,20 @@ output:
 inputs:
   schema:
     type: object
-    properties: {}
-  examples: []
+    properties:
+      title:
+        type: string
+        maxLength: 40
+        description: Card title (intro composition)
+      subtitle:
+        type: string
+        maxLength: 60
+        description: Card subtitle (intro composition)
+    examples:
+      - title: "INNER COMPASS"
+        subtitle: "A tarot reading, slowly."
+      - title: "TAROT + AKASHA"
+        subtitle: "Read together. Once."
 
 license:
   spdx: Apache-2.0
