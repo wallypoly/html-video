@@ -40,8 +40,33 @@ output:
 inputs:
   schema:
     type: object
-    properties: {}
-  examples: []
+    properties:
+      brand_name:
+        type: string
+        maxLength: 60
+        description: Wordmark shown on the outro (composition 08)
+      brand_tagline:
+        type: string
+        maxLength: 120
+        description: Tagline shown beneath the wordmark on the outro
+      step_plan:
+        type: string
+        maxLength: 20
+        description: Label for the "Plan" surface (composition 05)
+      step_build:
+        type: string
+        maxLength: 20
+        description: Label for the "Build" surface (composition 05)
+      step_monitor:
+        type: string
+        maxLength: 20
+        description: Label for the "Monitor" surface (composition 05)
+    examples:
+      - brand_name: "UNIQorn"
+        brand_tagline: "Tarot + Akasha, held together."
+        step_plan: "Lay out"
+        step_build: "Meet your deck"
+        step_monitor: "Sit with it"
 
 license:
   spdx: MIT

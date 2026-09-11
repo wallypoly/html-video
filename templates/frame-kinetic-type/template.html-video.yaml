@@ -37,8 +37,20 @@ output:
 inputs:
   schema:
     type: object
-    properties: {}
-  examples: []
+    properties:
+      title:
+        type: string
+        maxLength: 40
+        description: Large display title shown in both the Swiss and Vignelli layouts
+      subtitle:
+        type: string
+        maxLength: 60
+        description: Subtitle line shown beneath the title
+    examples:
+      - title: "UNIQorn"
+        subtitle: "Being seen, slowly."
+      - title: "Workshop promo"
+        subtitle: "KL · Sep 26"
 
 license:
   spdx: Apache-2.0
